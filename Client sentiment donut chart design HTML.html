@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Client Sentiment — Donut</title>
+<style>
+  :root{
+    --blue:#4EA3FF;     /* Long */
+    --red:#E5524D;      /* Short */
+    --track:#e9eef5;    /* Ring background */
+    --ink:#0f172a;      /* Text */
+    --muted:#6b7280;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#f6f8fb; color:var(--ink);
+    font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .wrap{ width:min(920px,100%); display:grid; grid-template-columns: 1fr 320px; gap:20px; }
+  @media (max-width:860px){ .wrap{ grid-template-columns:1fr; } }
+  .card{
+    background:var(--card); border-radius:20px; box-shadow:0 10px 30px rgba(2,6,23,.06);
+    padding:20px;
+  }
+  .title{font-weight:600; font-size:18px; margin:0 0 12px}
+  .stage{ position:relative; aspect-ratio:1/1; width:100%; max-width:640px; margin:auto; }
+  .legend{ display:flex; gap:18px; justify-content:center; margin-top:14px; color:#334155; }
+  .dot{ width:12px; height:12px; border-radius:3px; display:inline-block; margin-right:8px }
+  label{ font-size:12px; color:var(--muted); display:block; margin:0 0 6px}
+  input[type="number"], input[type="text"]{
+    width:100%; padding:10px 12px; border-radius:12px; border:1px solid #d9e1ee; outline:none;
+    font:14px/1.2 inherit; background:#fff;
+  }
+  .notice{ margin-top:8px; color:#64748b; font-size:12px }
+
+  /* Center visuals */
+  .center-chip{ fill:#0b1020; }         /* dark inner circle */
+  .center-text{ fill:#e5e7eb; font-weight:700; }  /* SENTIMENT — light so it's visible */
+  .center-sub { fill:#cbd5e1; font-size:12px; font-weight:600; letter-spacing:.3px }  /* CLIENT */
+
+  /* Percentage flags */
+  .tag rect{ rx:6; ry:6 }
+  .tag text{ font-weight:700; fill:#fff; dominant-baseline:middle; text-anchor:middle }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2 class="title" id="panel-title">Client Sentiment</h2>
+      <div class="stage">
+        <svg id="chart" viewBox="0 0 600 600" width="100%" height="100%" role="img" aria-label="Client Sentiment donut">
+          <!-- Ring track -->
+          <circle cx="300" cy="300" r="200" fill="none" stroke="var(--track)" stroke-width="48" />
+          <!-- Segments -->
+          <path id="arc-long"  fill="none" stroke="var(--blue)" stroke-width="48" stroke-linecap="butt"/>
+          <path id="arc-short" fill="none" stroke="var(--red)"  stroke-width="48" stroke-linecap="butt"/>
+          <!-- Percentage flags -->
+          <g id="tag-long"  class="tag"><rect x="0" y="0" width="60" height="28" fill="var(--blue)" opacity=".95"></rect><text x="0" y="0" font-size="14">64%</text></g>
+          <g id="tag-short" class="tag"><rect x="0" y="0" width="60" height="28" fill="var(--red)"  opacity=".95"></rect><text x="0" y="0" font-size="14">36%</text></g>
+          <!-- Center label -->
+          <circle cx="300" cy="300" r="120" class="center-chip"/>
+          <text x="300" y="275" class="center-sub"  text-anchor="middle">CLIENT</text>
+          <text x="300" y="305" class="center-text" text-anchor="middle" font-size="24">SENTIMENT</text>
+          <text id="center-values" x="300" y="336" class="center-sub" text-anchor="middle">64% / 36%</text>
+        </svg>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--blue)"></i>% Traders Long</span>
+          <span><i class="dot" style="background:var(--red)"></i>% Traders Short</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="title">Controls</h2>
+      <div style="display:grid; gap:12px">
+        <div>
+          <label for="title">Title</label>
+          <input id="title" type="text" value="Client Sentiment" />
+        </div>
+        <div>
+          <label for="long">% Long (0–100). Short is calculated as 100 − Long.</label>
+          <input id="long" type="number" step="0.1" min="0" max="100" value="64" />
+        </div>
+        <div class="notice" id="sumNote">Total = 100%</div>
+      </div>
+      <div class="notice">Tip: you can set via URL, e.g. <code>?long=64&title=Gold</code></div>
+    </div>
+  </div>
+
+<script>
+  // Geometry
+  const CX=300, CY=300, R=200, SW=48, START=-90;
+  const $ = (s)=>document.querySelector(s);
+
+  function polar(cx, cy, r, deg){
+    const rad=(deg-90)*Math.PI/180; return {x:cx+r*Math.cos(rad), y:cy+r*Math.sin(rad)};
+  }
+  function arcPath(cx, cy, r, a0, a1){
+    const sweep=a1-a0;
+    if (sweep <= 0.0001) return '';
+    const s=polar(cx,cy,r,a1), e=polar(cx,cy,r,a0);
+    const large = sweep>180 ? 1 : 0;
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 0 ${e.x} ${e.y}`;
+  }
+  function placeTag(g, angle, color, text){
+    const t=g.querySelector('text'), r=g.querySelector('rect');
+    t.textContent=text; t.setAttribute('x',0); t.setAttribute('y',0);
+    const b=t.getBBox(), padX=10, padY=6, w=b.width+padX*2, h=b.height+padY*2;
+    r.setAttribute('width', w); r.setAttribute('height', h); r.setAttribute('fill', color);
+    const rr=R+SW/2+20, p=polar(CX,CY,rr,angle);
+    r.setAttribute('x', p.x-w/2); r.setAttribute('y', p.y-h/2);
+    t.setAttribute('x', p.x);    t.setAttribute('y', p.y+1);
+  }
+
+  function update(){
+    const title=($('#title').value||'Client Sentiment').trim();
+    $('#panel-title').textContent=title;
+
+    // Long is entered; clamp to [0,100], Short = 100 - Long
+    let long=parseFloat($('#long').value);
+    if(isNaN(long)) long=0;
+    long=Math.max(0, Math.min(100, long));
+    $('#long').value=long; // reflect clamped value
+    const short=100 - long;
+    $('#sumNote').textContent = `Total = ${(long+short).toFixed(1)}% (Short = 100 − Long)`;
+
+    const aLong = long/100*360;
+    const aShort= 360-aLong;
+
+    $('#arc-long').setAttribute('d', arcPath(CX,CY,R, START, START+aLong));
+    $('#arc-short').setAttribute('d', arcPath(CX,CY,R, START+aLong, START+aLong+aShort));
+
+    $('#center-values').textContent = `${long.toFixed(1)}% / ${short.toFixed(1)}%`;
+
+    const blue=getComputedStyle(document.documentElement).getPropertyValue('--blue').trim();
+    const red =getComputedStyle(document.documentElement).getPropertyValue('--red').trim();
+
+    placeTag($('#tag-long'),  START + aLong/2,             blue, `${Math.round(long)}%`);
+    placeTag($('#tag-short'), START + aLong + aShort/2,     red,  `${Math.round(short)}%`);
+  }
+
+  // URL params: ?long=64&title=Gold
+  (function fromQuery(){
+    const p=new URLSearchParams(location.search);
+    if(p.has('long'))  $('#long').value = parseFloat(p.get('long')) || 0;
+    if(p.has('title')) $('#title').value = p.get('title');
+  })();
+
+  $('#long').addEventListener('input', update);
+  $('#title').addEventListener('input', update);
+  update();
+</script>
+</body>
+</html>
